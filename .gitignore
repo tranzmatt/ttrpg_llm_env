@@ -1,0 +1,37 @@
+# Python and ML
+*.pyc
+__pycache__/
+*.pkl
+*.ckpt
+
+# Environment
+ttrpg_llm_env/
+env/
+venv/
+
+# Large Data/Models
+datasets/
+trained_ttrpg_gm/
+trained_models/
+exports/
+logs/
+unsloth_compiled_cache/
+ttrpg_training_data*.json
+
+# OS defaults
+.DS_Store
+Thumbs.db
+
+# IDE/project settings
+.vscode/
+.idea/
+
+# Generated files and folders
+.env_setup_done
+.model_trained
+.pdf_processed
+_unsloth_temporary_saved_buffers/
+trained_ttrpg_gm_merged/
+ttrpg_pdfs/
+
+
