@@ -67,7 +67,7 @@ $(MERGED_DONE):
 convert_gguf: merge_safetensors $(GGUF_DONE)
 $(GGUF_DONE):
 	$(PYTHON) $(GGUF_CONVERT) \
-		--model trained_ttrpg_gm_merged \
+		trained_ttrpg_gm_merged \
 		--outfile $(GGUF_MODEL) \
 		--outtype f16
 	@touch $(GGUF_DONE)
