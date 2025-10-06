@@ -11,23 +11,23 @@ from typing import List, Dict, Any
 def extract_text_from_pdf(pdf_path: str) -> str:
     """
     Extract text from PDF using PyMuPDF for better formatting retention
-    
+
     Args:
         pdf_path: Path to the PDF file
-        
+
     Returns:
         Extracted text as string
     """
     try:
         doc = fitz.open(pdf_path)
         text = ""
-        
+
         for page_num in range(len(doc)):
             page = doc[page_num]
             page_text = page.get_text()
             # Add page separator for context
             text += f"\n--- Page {page_num + 1} ---\n{page_text}"
-        
+
         doc.close()
         return text
     except Exception as e:
@@ -37,51 +37,51 @@ def extract_text_from_pdf(pdf_path: str) -> str:
 def clean_ttrpg_text(text: str) -> str:
     """
     Clean extracted text for better training quality
-    
+
     Args:
         text: Raw extracted text
-        
+
     Returns:
         Cleaned text
     """
     # Remove excessive whitespace
     text = re.sub(r'\n+', '\n', text)
     text = re.sub(r' +', ' ', text)
-    
+
     # Split into lines for processing
     lines = text.split('\n')
     cleaned_lines = []
-    
+
     for line in lines:
         line = line.strip()
-        
+
         # Skip empty lines
         if not line:
             continue
-            
+
         # Skip likely headers/footers (very short lines, just numbers, etc.)
         if len(line) < 3:
             continue
-            
+
         # Skip lines that are just page numbers
         if line.isdigit() and len(line) < 4:
             continue
-            
+
         # Skip common PDF artifacts
         if line.lower() in ['table of contents', 'index', 'appendix']:
             continue
-            
+
         cleaned_lines.append(line)
-    
+
     return '\n'.join(cleaned_lines)
 
 def split_into_sections(text: str) -> List[str]:
     """
     Split text into meaningful sections for training
-    
+
     Args:
         text: Cleaned text
-        
+
     Returns:
         List of text sections
     """
@@ -100,14 +100,14 @@ def split_into_sections(text: str) -> List[str]:
         r'abilities',
         r'skills'
     ]
-    
+
     sections = []
     current_section = ""
-    
+
     for line in text.split('\n'):
         # Check if this line starts a new section
         is_new_section = any(re.search(marker, line.lower()) for marker in section_markers)
-        
+
         if is_new_section and current_section:
             # Save previous section if it has substantial content
             if len(current_section.strip()) > 100:
@@ -115,27 +115,27 @@ def split_into_sections(text: str) -> List[str]:
             current_section = line + "\n"
         else:
             current_section += line + "\n"
-    
+
     # Add the last section
     if len(current_section.strip()) > 100:
         sections.append(current_section.strip())
-    
+
     return sections
 
 def create_training_examples(text: str, source_name: str) -> List[Dict[str, Any]]:
     """
     Convert text into instruction-following format for GM LLM
-    
+
     Args:
         text: Cleaned text from PDF
         source_name: Name of the source PDF/rulebook
-        
+
     Returns:
         List of training examples
     """
     examples = []
     sections = split_into_sections(text)
-    
+
     # GM-specific prompts for TTRPG context
     gm_prompts = [
         "Explain this rule to a new player:",
@@ -147,7 +147,7 @@ def create_training_examples(text: str, source_name: str) -> List[Dict[str, Any]
         "What should players know about this?",
         "As a GM, how do I implement this rule?"
     ]
-    
+
     for i, section in enumerate(sections):
         if len(section) > 150:  # Only use substantial sections
             # Create multiple examples per section with different prompts
@@ -160,21 +160,21 @@ def create_training_examples(text: str, source_name: str) -> List[Dict[str, Any]
                     "section_id": i
                 }
                 examples.append(example)
-    
+
     return examples
 
 def create_conversational_format(examples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Convert examples to conversational format for chat-based training
-    
+
     Args:
         examples: List of instruction examples
-        
+
     Returns:
         List of conversational examples
     """
     conversational_examples = []
-    
+
     for example in examples:
         conv_example = {
             "messages": [
@@ -195,70 +195,149 @@ def create_conversational_format(examples: List[Dict[str, Any]]) -> List[Dict[st
             "section_id": example.get('section_id', 0)
         }
         conversational_examples.append(conv_example)
-    
+
     return conversational_examples
+
+# NEW: Data validation function
+def validate_training_data(data: List[Dict]) -> bool:
+    """
+    Validate the quality of training data
+
+    Args:
+        data: List of training examples
+
+    Returns:
+        True if data passes validation
+    """
+    print("\n" + "="*50)
+    print("Validating Data Quality")
+    print("="*50)
+
+    if not data:
+        print("❌ ERROR: No training examples found!")
+        return False
+
+    print(f"Total examples: {len(data)}")
+
+    # Check structure
+    issues = 0
+    for i, example in enumerate(data[:100]):  # Sample first 100
+        if not isinstance(example, dict):
+            print(f"⚠️  Example {i}: Not a dictionary")
+            issues += 1
+            continue
+
+        if 'messages' not in example:
+            print(f"⚠️  Example {i}: Missing 'messages' key")
+            issues += 1
+            continue
+
+        if not isinstance(example['messages'], list):
+            print(f"⚠️  Example {i}: 'messages' is not a list")
+            issues += 1
+            continue
+
+    if issues > 0:
+        print(f"⚠️  Found {issues} structural issues in sample")
+        if issues > 10:
+            print("❌ Too many issues - please check PDF extraction")
+            return False
+    else:
+        print("✓ Data structure validation passed")
+
+    # Check content length
+    total_chars = sum(
+        len(msg['content']) 
+        for ex in data 
+        if 'messages' in ex 
+        for msg in ex['messages'] 
+        if 'content' in msg
+    )
+    avg_chars = total_chars / len(data) if data else 0
+
+    print(f"Average content per example: {avg_chars:.0f} characters")
+
+    if avg_chars < 100:
+        print("⚠️  WARNING: Very short content - check PDF extraction quality")
+
+    # Check for minimum dataset size
+    if len(data) < 50:
+        print("⚠️  WARNING: Very small dataset (<50 examples)")
+        print("   Consider adding more PDFs for better model quality")
+
+    print("✓ Validation complete\n")
+    return True
 
 def process_ttrpg_pdfs(pdf_directory: str, output_file: str) -> List[Dict[str, Any]]:
     """
     Process all PDFs in directory and create training dataset
-    
+
     Args:
         pdf_directory: Directory containing PDF files
         output_file: Output JSON file path
-        
+
     Returns:
         List of training examples
     """
     if not os.path.exists(pdf_directory):
         print(f"Directory {pdf_directory} does not exist!")
         return []
-    
+
     all_training_data = []
     pdf_files = list(Path(pdf_directory).glob("*.pdf"))
-    
+
     if not pdf_files:
         print(f"No PDF files found in {pdf_directory}")
         return []
-    
+
     print(f"Found {len(pdf_files)} PDF files to process...")
-    
+
     for pdf_file in pdf_files:
         print(f"\nProcessing {pdf_file.name}...")
-        
+
         # Extract text from PDF
         raw_text = extract_text_from_pdf(str(pdf_file))
-        
+
         if not raw_text:
             print(f"  Warning: No text extracted from {pdf_file.name}")
             continue
-        
+
         # Clean the text
         cleaned_text = clean_ttrpg_text(raw_text)
         print(f"  Extracted {len(cleaned_text)} characters of text")
-        
+
         # Create training examples
         examples = create_training_examples(cleaned_text, pdf_file.stem)
         print(f"  Created {len(examples)} training examples")
-        
+
         all_training_data.extend(examples)
-    
+
     # Convert to conversational format
     conversational_data = create_conversational_format(all_training_data)
-    
+
+    # NEW: Validate data before saving
+    if not validate_training_data(conversational_data):
+        print("\n⚠️  WARNING: Data quality issues detected!")
+        print("Review the data before training.")
+        user_input = input("Continue saving anyway? (y/n): ")
+        if user_input.lower() != 'y':
+            print("Aborted.")
+            return []
+
     # Save both formats
     print(f"\nSaving {len(all_training_data)} instruction examples...")
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(all_training_data, f, indent=2, ensure_ascii=False)
-    
+
     conversational_output = output_file.replace('.json', '_conversational.json')
     print(f"Saving {len(conversational_data)} conversational examples...")
     with open(conversational_output, 'w', encoding='utf-8') as f:
         json.dump(conversational_data, f, indent=2, ensure_ascii=False)
-    
+
     print(f"\nDataset creation complete!")
     print(f"Total examples: {len(all_training_data)}")
     print(f"Files saved: {output_file} and {conversational_output}")
-    
+
     return all_training_data
 
 def main():
@@ -266,16 +345,16 @@ def main():
     # Configuration
     pdf_directory = "./ttrpg_pdfs"  # Change this to your PDF directory
     output_file = "./datasets/ttrpg_training_data.json"
-    
+
     print("TTRPG PDF Processing Script")
     print("=" * 40)
-    
+
     # Create output directory if it doesn't exist
     os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
-    
+
     # Process PDFs
     training_data = process_ttrpg_pdfs(pdf_directory, output_file)
-    
+
     if training_data:
         print("\nNext steps:")
         print("1. Review the generated JSON files")
