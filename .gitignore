@@ -29,9 +29,12 @@ Thumbs.db
 # Generated files and folders
 .env_setup_done
 .model_trained
+.model_gguf
+.model_merged
 .pdf_processed
 _unsloth_temporary_saved_buffers/
 trained_ttrpg_gm_merged/
 ttrpg_pdfs/
+llama.cpp/
 
 
